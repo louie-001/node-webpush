@@ -1,75 +1,144 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo_text.svg" width="320" alt="Nest Logo" /></a>
-</p>
+# Push API
 
-[travis-image]: https://api.travis-ci.org/nestjs/nest.svg?branch=master
-[travis-url]: https://travis-ci.org/nestjs/nest
-[linux-image]: https://img.shields.io/travis/nestjs/nest/master.svg?label=linux
-[linux-url]: https://travis-ci.org/nestjs/nest
-  
-  <p align="center">A progressive <a href="http://nodejs.org" target="blank">Node.js</a> framework for building efficient and scalable server-side applications, heavily inspired by <a href="https://angular.io" target="blank">Angular</a>.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore"><img src="https://img.shields.io/npm/dm/@nestjs/core.svg" alt="NPM Downloads" /></a>
-<a href="https://travis-ci.org/nestjs/nest"><img src="https://api.travis-ci.org/nestjs/nest.svg?branch=master" alt="Travis" /></a>
-<a href="https://travis-ci.org/nestjs/nest"><img src="https://img.shields.io/travis/nestjs/nest/master.svg?label=linux" alt="Linux" /></a>
-<a href="https://coveralls.io/github/nestjs/nest?branch=master"><img src="https://coveralls.io/repos/github/nestjs/nest/badge.svg?branch=master#5" alt="Coverage" /></a>
-<a href="https://gitter.im/nestjs/nestjs?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=body_badge"><img src="https://badges.gitter.im/nestjs/nestjs.svg" alt="Gitter" /></a>
-<a href="https://opencollective.com/nest#backer"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec"><img src="https://img.shields.io/badge/Donate-PayPal-dc3d53.svg"/></a>
-  <a href="https://twitter.com/nestframework"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+> The Push API gives web applications the ability to receive messages pushed to them from a server, whether or not the web app is in the foreground, or even currently loaded, on a user agent. This lets developers deliver asynchronous notifications and updates to users that opt in, resulting in better engagement with timely new content.
 
-## Description
+web应用接收来自server的消息，以往都是通过长连接或者轮训的方式获取。W3C Push API为Web应用接收来自server的消息提供了一种能力，不论Web程序是否在前台，我们都可以异步的向Web应用下发消息，就像原生APP那样。本文主要介绍NodeJS服务端使用web-push向web端发送消息，关于Push API的详细说明可查阅 [MDN web dosc](https://developer.mozilla.org/zh-CN/docs/Web/API/Push_API)。
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+# web-push
+使用web push功能推送消息到用户浏览器是比较复杂的，不仅需要以 web push协议向push service发送POST请求，而且header中需要VAPID信息以及对消息的加密信息。**web-push** 是一个实现web push消息推送的Node 库。
 
-## Installation
+# web push 服务
+## 创建工程，安装依赖
+新建node-webpush工程，使用NestJS框架：
+```
+nest new node-webpush
+```
+```
+目录结构：
+├── nest-cli.json
+├── package.json
+├── package-lock.json
+├── README.md
+├── src
+│   ├── app.controller.spec.ts
+│   ├── app.controller.ts
+│   ├── app.module.ts
+│   ├── app.service.ts
+│   └── main.ts
+├── test
+│   ├── app.e2e-spec.ts
+│   └── jest-e2e.json
+├── tsconfig.build.json
+└── tsconfig.json
 
-```bash
-$ npm install
 ```
 
-## Running the app
-
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+安装web-push库：
+```
+npm i web-push -S
 ```
 
-## Test
+## app.controller.ts
 
-```bash
-# unit tests
-$ npm run test
+```javascript
+import { Body, Controller, Ip, Post, Query } from '@nestjs/common';
+import { AppService } from './app.service';
 
-# e2e tests
-$ npm run test:e2e
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
 
-# test coverage
-$ npm run test:cov
+  /**
+   * web 端 service work 就绪时保存 endpoint
+   * @param endpoint
+   * @param ip
+   */
+  @Post('endpoint')
+  saveEndpoint(@Body() endpoint, @Ip() ip: string): string {
+    this.appService.saveEndpoint(endpoint, ip);
+    return 'endpoint save success';
+  }
+
+  /**
+   * 向web端发送消息
+   * @param message
+   * @param ip
+   */
+  @Post('message')
+  async pushMessage(@Body() message: string, @Query('ip') ip: string): Promise<string> {
+    return this.appService.pushMessage(message, ip);
+  }
+}
 ```
 
-## Support
+## app.service.ts
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```javascript
+import { Injectable, Logger } from '@nestjs/common';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const webPush = require('web-push');
 
-## Stay in touch
+@Injectable()
+export class AppService {
+  /**
+   * web端service worker 信息
+   * demo，简单处理，实际应使用DB等其他方式存储
+   */
+  private endpointMap: Map<string, string> = new Map();
 
-- Author - [Kamil Myśliwiec](https://kamilmysliwiec.com)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+  private logger: Logger = new Logger(AppService.name);
 
-## License
+  /**
+   * wep-push, 生成VAPID
+   */
+  vapidKey(): string {
+    return webPush.generateVAPIDKeys();
+  }
 
-  Nest is [MIT licensed](LICENSE).
+  /**
+   * 存储endpoint
+   * @param endpoint
+   * @param ip
+   */
+  saveEndpoint(endpoint: string, ip: string): void {
+    this.endpointMap.set(ip, endpoint);
+  }
+
+  /**
+   * 使用 web-push 发送消息
+   * @param message
+   * @param ip
+   */
+  pushMessage(message: string, ip: string): Promise<string> {
+    // vapidKey 方法生成，需与web端一致
+    const vapidKey = {
+      publicKey:
+        'BO_sjITRaeBOaC5UDMb6L3_h64FMRozOAgct02jsKcfjvM6SuKcJjQTMXBBGM5H3xhT1u-Oz11_Gi1yC8RDsin4',
+      privateKey: '6zkwDjpO7FiilA9lIjGzt7EMV9C9IRMRWH1hWP4J6oc',
+    };
+
+    webPush.setVapidDetails(
+      'mailto:test@163.com',
+      vapidKey.publicKey,
+      vapidKey.privateKey,
+    );
+
+    return new Promise((resolve, reject) => {
+      // send notification
+      webPush
+        .sendNotification(message, this.endpointMap.get(ip))
+        .then(res => {
+          this.logger.log(res);
+          resolve(res);
+        })
+        .catch(error => {
+          this.logger.error(error);
+          reject(error);
+        });
+    });
+  }
+}
+```
+
+> 1. 下篇博文将介绍web如何注册 service worker 并提交endpoint；
+> 2. demo 源码https://github.com/louie-001/node-webpush.git；
